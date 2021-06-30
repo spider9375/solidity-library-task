@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity >=0.7.0 <0.9.0;
+pragma solidity ^0.8.0;
 pragma abicoder v2;
 
+
+import "./ReentrancyGuard.sol";
 import "./Ownable.sol";
 
-contract Library is Ownable {
+contract Library is Ownable, ReentrancyGuard {
     event BorrowedBook(uint bookId, address borrower);
     event ReturnedBook(uint bookId, address borrower);
     event NewBook(uint bookId, string name, uint totalCopies);
@@ -35,44 +37,51 @@ contract Library is Ownable {
     Book[] private books;
     uint private availableBooksCount = 0;
     
+    uint _contractFunds;
+    mapping (address => uint) private _borrowerDeposits;
     mapping(uint => uint) private bookCopiesNumber;
     mapping (uint => address[]) private bookOwnerHistory;
     mapping(address => mapping(uint => bool)) private ownerBooks;
 
-    
     modifier isAvailable(uint _id) {
         require(bookCopiesNumber[_id] > 0, "There are no copies of this book at the moment");
         _;
     }
-    
+
     modifier isFromLibrary(BookCopy calldata bookCopy) {
         require(books.length >= bookCopy.bookId && bookCopy.libraryAddress == owner, "This book is not from this library");
         _;
     }
-    
+
     modifier callerBorrowedBook(uint id) {
         require(ownerBooks[msg.sender][id], "This user hasn't borrowed this book");
         _;
     }
-    
+
     modifier isFirstCopyOfBookForUser(uint id) {
         require(!ownerBooks[msg.sender][id], "Cannot borrow more than one copy of a book at a time");
         _;
     }
-    
+
     modifier bookExists(uint id) {
         require(books.length > id, "Book does not exist");
         _;
     }
-    
+
     modifier idIsSubsequent(uint id) {
         require(books.length + 1 >= id, "Cant skip ids");
         _;
     }
-    
+
     modifier notOwner() {
         require(msg.sender != owner, "Owner cannot borrow books");
         _;
+    }
+
+    function withdrawMoney() public onlyOwner nonReentrant {
+        require(_contractFunds > 0, "Nothing to withdraw");
+        payable(owner).transfer(_contractFunds);
+        _contractFunds = 0;
     }
 
     // _bookId starts at 1 and can add new book with subsequent id; (1,2,3...);
@@ -100,7 +109,7 @@ contract Library is Ownable {
             emit AddedBookCopies(_bookId, _copies, bookCopiesNumber[_bookId]);
         }
     }
-    
+
     function seeAvailableBooks()
         public
         view
@@ -120,13 +129,16 @@ contract Library is Ownable {
     }
     
     function borrowBook(uint _id)
+        payable
         public 
+        notOwner
+        nonReentrant
         isFirstCopyOfBookForUser(_id)
         isAvailable(_id)
         bookExists(_id)
-        notOwner
         returns(BookCopy memory)
     {
+        require(msg.value > 0);
         ownerBooks[msg.sender][_id] = true;
         bookOwnerHistory[_id].push(msg.sender);
         BookCopy memory bookCopy = BookCopy(_id, owner);
@@ -136,6 +148,8 @@ contract Library is Ownable {
             availableBooksCount--;
         }
         
+        // _borrowerDeposits[msg.sender] = msg.value;
+        _contractFunds+= msg.value;
         emit BorrowedBook(bookCopy.bookId, msg.sender);
         
         return bookCopy;
