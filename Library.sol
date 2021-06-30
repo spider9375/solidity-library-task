@@ -148,7 +148,6 @@ contract Library is Ownable, ReentrancyGuard {
             availableBooksCount--;
         }
         
-        // _borrowerDeposits[msg.sender] = msg.value;
         _contractFunds+= msg.value;
         emit BorrowedBook(bookCopy.bookId, msg.sender);
         
